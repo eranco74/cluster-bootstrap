@@ -23,9 +23,9 @@ import (
 
 const (
 	// how long we wait until the bootstrap pods to be running
-	bootstrapPodsRunningTimeout = 20 * time.Minute
+	bootstrapPodsRunningTimeout = 2000 * time.Minute
 	// how long we wait until the assets must all be created
-	assetsCreatedTimeout = 60 * time.Minute
+	assetsCreatedTimeout = 6000 * time.Minute
 )
 
 type Config struct {
