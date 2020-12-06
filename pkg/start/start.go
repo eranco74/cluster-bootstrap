@@ -2,6 +2,7 @@ package start
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -25,7 +26,8 @@ const (
 	// how long we wait until the bootstrap pods to be running
 	bootstrapPodsRunningTimeout = 20 * time.Minute
 	// how long we wait until the assets must all be created
-	assetsCreatedTimeout = 60 * time.Minute
+	assetsCreatedTimeout     = 60 * time.Minute
+	SingleNodeProductionEdge = "single-node-production-edge"
 )
 
 type Config struct {
@@ -127,8 +129,6 @@ func (b *startCommand) Run() error {
 	if err = waitUntilPodsRunning(ctx, client, b.requiredPodPrefixes); err != nil {
 		return err
 	}
-	cancel()
-	assetsDone.Wait()
 
 	// notify installer that we are ready to tear down the temporary bootstrap control plane
 	UserOutput("Sending bootstrap-success event.")
@@ -136,43 +136,45 @@ func (b *startCommand) Run() error {
 		return err
 	}
 
-	// continue with assets
-	ctx, cancel = context.WithTimeout(context.Background(), assetsCreatedTimeout)
-	defer cancel()
 	if b.earlyTearDown {
+		cancel()
+		assetsDone.Wait()
+
+		// continue with assets
+		ctx, cancel = context.WithTimeout(context.Background(), assetsCreatedTimeout)
+		defer cancel()
+
 		// switch over to ELB client and continue with the assets
 		assetsDone = createAssetsInBackground(ctx, cancel, restConfig)
-	} else {
-		// we don't tear down the local control plane early. So we can keep using it and enjoy the speed up.
-		assetsDone = createAssetsInBackground(ctx, cancel, localClientConfig)
-	}
 
-	// optionally wait for tear down event coming from the installer. This is necessary to
-	// remove the bootstrap node from the AWS load balancer.
-	if len(b.waitForTearDownEvent) != 0 {
-		ss := strings.Split(b.waitForTearDownEvent, "/")
-		if len(ss) != 2 {
-			return fmt.Errorf("tear down event name of format <namespace>/<event-name> expected, got: %q", b.waitForTearDownEvent)
-		}
-		ns, name := ss[0], ss[1]
-		if err := waitForEvent(context.TODO(), client, ns, name); err != nil {
-			return err
+		// optionally wait for tear down event coming from the installer. This is necessary to
+		// remove the bootstrap node from the AWS load balancer.
+		if len(b.waitForTearDownEvent) != 0 {
+			ss := strings.Split(b.waitForTearDownEvent, "/")
+			if len(ss) != 2 {
+				return fmt.Errorf("tear down event name of format <namespace>/<event-name> expected, got: %q", b.waitForTearDownEvent)
+			}
+			ns, name := ss[0], ss[1]
+			if err := waitForEvent(context.TODO(), client, ns, name); err != nil {
+				return err
+			}
+			UserOutput("Got %s event.", b.waitForTearDownEvent)
 		}
 		UserOutput("Got %s event.", b.waitForTearDownEvent)
-	}
 
-	// tear down the bootstrap control plane. Set bcp to nil to avoid a second tear down in the defer func.
-	if b.earlyTearDown {
 		err = bcp.Teardown()
 		bcp = nil
 		if err != nil {
 			UserOutput("Error tearing down temporary bootstrap control plane: %v\n", err)
 		}
 	}
-
 	// wait for the tail of assets to be created after tear down
 	UserOutput("Waiting for remaining assets to be created.\n")
 	assetsDone.Wait()
+	// We want to fail in case we failed to create some manifests
+	if ctx.Err() == context.DeadlineExceeded {
+		return errors.New("Timed out creating manifests")
+	}
 
 	UserOutput("Sending bootstrap-finished event.")
 	if _, err := client.CoreV1().Events("kube-system").Create(makeBootstrapSuccessEvent("kube-system", "bootstrap-finished")); err != nil && !apierrors.IsAlreadyExists(err) {

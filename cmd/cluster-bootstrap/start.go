@@ -26,6 +26,7 @@ var (
 		requiredPodClauses   []string
 		waitForTearDownEvent string
 		earlyTearDown        bool
+		bootstrapInPlace     bool
 	}
 )
 
