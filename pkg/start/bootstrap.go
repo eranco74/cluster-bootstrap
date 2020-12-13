@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"github.com/openshift/cluster-bootstrap/pkg/common"
 )
 
 type bootstrapControlPlane struct {
@@ -31,7 +32,7 @@ func newBootstrapControlPlane(client *kubernetes.Clientset, assetDir, podManifes
 // Start seeds static manifests to the kubelet to launch the bootstrap control plane.
 // Users should always ensure that Cleanup() is called even in the case of errors.
 func (b *bootstrapControlPlane) Start() error {
-	UserOutput("Starting temporary bootstrap control plane...\n")
+	common.UserOutput("Starting temporary bootstrap control plane...\n")
 	// Make secrets temporarily available to bootstrap cluster.
 	if err := os.RemoveAll(bootstrapSecretsDir); err != nil {
 		return err
@@ -59,7 +60,7 @@ func (b *bootstrapControlPlane) Start() error {
 func (b *bootstrapControlPlane) waitForApi() (err error) {
 	discovery := b.client.Discovery()
 
-	UserOutput("Waiting up to %v for the Kubernetes API", bootstrapPodsRunningTimeout)
+	common.UserOutput("Waiting up to %v for the Kubernetes API", bootstrapPodsRunningTimeout)
 
 	apiContext, cancel := context.WithTimeout(context.Background(), bootstrapPodsRunningTimeout)
 	defer cancel()
@@ -69,14 +70,14 @@ func (b *bootstrapControlPlane) waitForApi() (err error) {
 	wait.Until(func() {
 		version, err := discovery.ServerVersion()
 		if err == nil {
-			UserOutput("API %s up", version)
+			common.UserOutput("API %s up", version)
 			cancel()
 		} else {
 			lastErr = err
 			chunks := strings.Split(err.Error(), ":")
 			errorSuffix := chunks[len(chunks)-1]
 			if previousErrorSuffix != errorSuffix {
-				UserOutput("Still waiting for the Kubernetes API: %v", err)
+				common.UserOutput("Still waiting for the Kubernetes API: %v", err)
 				previousErrorSuffix = errorSuffix
 			}
 		}
@@ -98,7 +99,7 @@ func (b *bootstrapControlPlane) Teardown() error {
 		return nil
 	}
 
-	UserOutput("Tearing down temporary bootstrap control plane...\n")
+	common.UserOutput("Tearing down temporary bootstrap control plane...\n")
 	if err := os.RemoveAll(bootstrapSecretsDir); err != nil {
 		return err
 	}
