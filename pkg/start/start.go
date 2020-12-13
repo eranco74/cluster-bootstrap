@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/openshift/cluster-bootstrap/pkg/common"
 	"net"
 	"net/url"
 	"os"
@@ -74,14 +75,14 @@ func (b *startCommand) Run() error {
 	// Always tear down the bootstrap control plane and clean up manifests and secrets.
 	defer func() {
 		if err := bcp.Teardown(); err != nil {
-			UserOutput("Error tearing down temporary bootstrap control plane: %v\n", err)
+			common.UserOutput("Error tearing down temporary bootstrap control plane: %v\n", err)
 		}
 	}()
 
 	defer func() {
 		// Always report errors.
 		if err != nil {
-			UserOutput("Error: %v\n", err)
+			common.UserOutput("Error: %v\n", err)
 		}
 	}()
 
@@ -116,7 +117,7 @@ func (b *startCommand) Run() error {
 				select {
 				case <-ctx.Done():
 				default:
-					UserOutput("Assert creation failed: %v\n", err)
+					common.UserOutput("Assert creation failed: %v\n", err)
 					cancel()
 				}
 			}
@@ -131,7 +132,7 @@ func (b *startCommand) Run() error {
 	}
 
 	// notify installer that we are ready to tear down the temporary bootstrap control plane
-	UserOutput("Sending bootstrap-success event.")
+	common.UserOutput("Sending bootstrap-success event.")
 	if _, err := client.CoreV1().Events("kube-system").Create(makeBootstrapSuccessEvent("kube-system", "bootstrap-success")); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
@@ -158,25 +159,24 @@ func (b *startCommand) Run() error {
 			if err := waitForEvent(context.TODO(), client, ns, name); err != nil {
 				return err
 			}
-			UserOutput("Got %s event.", b.waitForTearDownEvent)
+			common.UserOutput("Got %s event.", b.waitForTearDownEvent)
 		}
-		UserOutput("Got %s event.", b.waitForTearDownEvent)
 
 		err = bcp.Teardown()
 		bcp = nil
 		if err != nil {
-			UserOutput("Error tearing down temporary bootstrap control plane: %v\n", err)
+			common.UserOutput("Error tearing down temporary bootstrap control plane: %v\n", err)
 		}
 	}
 	// wait for the tail of assets to be created after tear down
-	UserOutput("Waiting for remaining assets to be created.\n")
+	common.UserOutput("Waiting for remaining assets to be created.\n")
 	assetsDone.Wait()
 	// We want to fail in case we failed to create some manifests
 	if ctx.Err() == context.DeadlineExceeded {
 		return errors.New("Timed out creating manifests")
 	}
 
-	UserOutput("Sending bootstrap-finished event.")
+	common.UserOutput("Sending bootstrap-finished event.")
 	if _, err := client.CoreV1().Events("kube-system").Create(makeBootstrapSuccessEvent("kube-system", "bootstrap-finished")); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
@@ -184,20 +184,12 @@ func (b *startCommand) Run() error {
 	return nil
 }
 
-// All start command printing to stdout should go through this fmt.Printf wrapper.
-// The stdout of the start command should convey information useful to a human sitting
-// at a terminal watching their cluster bootstrap itself. Otherwise the message
-// should go to stderr.
-func UserOutput(format string, a ...interface{}) {
-	fmt.Printf(format, a...)
-}
-
 func waitForEvent(ctx context.Context, client kubernetes.Interface, ns, name string) error {
 	return wait.PollImmediateUntil(time.Second, func() (done bool, err error) {
 		if _, err := client.CoreV1().Events(ns).Get(name, metav1.GetOptions{}); err != nil && apierrors.IsNotFound(err) {
 			return false, nil
 		} else if err != nil {
-			UserOutput("Error waiting for %s/%s event: %v", ns, name, err)
+			common.UserOutput("Error waiting for %s/%s event: %v", ns, name, err)
 			return false, nil
 		}
 		return true, nil
