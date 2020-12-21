@@ -39,7 +39,7 @@ func runCmdBootstrapInPlace(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	return ib.UpdateSnoIgnitionData()
+	return ib.UpdateIgnitionWithBootstrapInPlaceData()
 }
 
 func validateBootstrapInPlaceOpts(cmd *cobra.Command, args []string) error {
